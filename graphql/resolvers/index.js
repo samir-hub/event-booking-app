@@ -91,7 +91,7 @@ module.exports = {
       description: args.eventInput.description,
       price: +args.eventInput.price,
       date: new Date(args.eventInput.date),
-      creator: "5e52f8ca7ecd0e4088144fd6"
+      creator: req.userId
     });
     let createdEvent;
     return event
@@ -103,7 +103,7 @@ module.exports = {
           date: new Date(event._doc.date).toISOString(),
           creator: user.bind(this, result._doc.creator)
         };
-        return User.findById("5e52f8ca7ecd0e4088144fd6");
+        return User.findById(req.userId);
       })
       .then(user => {
         if (!user) {
@@ -148,7 +148,7 @@ module.exports = {
     }
     const fetchedEvent = await Event.findOne({ _id: args.eventId });
     const booking = new Booking({
-      user: "5e52f8ca7ecd0e4088144fd6",
+      user: req.userId,
       event: fetchedEvent
     });
     const result = await booking.save();
