@@ -1,21 +1,26 @@
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const Event = require("../../models/event");
 const User = require("../../models/user");
 const Booking = require("../../models/booking");
+const { dateToString } = require("../../helpers/date");
+
+const transformEvent = event => {
+  return {
+    ...event._doc,
+    _id: event.id,
+    date: new Date(event._doc.date).toISOString(),
+    creator: user.bind(this, event.creator)
+  };
+};
 
 const events = async eventIds => {
   try {
     const events = await Event.find({ _id: { $in: eventIds } });
-    events.map(event => {
-      return {
-        ...event._doc,
-        _id: event.id,
-        date: new Date(event._doc.date).toISOString(),
-        creator: user.bind(this, event.creator)
-      };
+    return events.map(event => {
+      return transformEvent(event);
     });
-    return events;
   } catch (err) {
     throw err;
   }
@@ -24,11 +29,7 @@ const events = async eventIds => {
 const singleEvent = async eventId => {
   try {
     const event = await Event.findById(eventId);
-    return {
-      ...event._doc,
-      _id: event.id,
-      creator: user.bind(this, event.creator)
-    };
+    return transformEvent(event);
   } catch (err) {
     throw err;
   }
@@ -53,19 +54,17 @@ module.exports = {
     return Event.find()
       .then(events => {
         return events.map(event => {
-          return {
-            ...event._doc,
-            _id: event.id,
-            date: new Date(event._doc.date).toISOString(),
-            creator: user.bind(this, event._doc.creator)
-          };
+          return transformEvent(event);
         });
       })
       .catch(err => {
         throw err;
       });
   },
-  bookings: async () => {
+  bookings: async (args, req) => {
+    if (!req.isAuth) {
+      throw new Error("Unauthenticated!");
+    }
     try {
       const bookings = await Booking.find();
       return bookings.map(booking => {
@@ -74,7 +73,7 @@ module.exports = {
           _id: booking.id,
           user: user.bind(this, booking._doc.user),
           event: singleEvent.bind(this, booking._doc.event),
-          createdAt: new Date(booking._doc.createdAt).toISOString(),
+          createdAt: dateToString(booking._doc.createdAt),
           updatedAt: new Date(booking._doc.updatedAt).toISOString()
         };
       });
@@ -83,7 +82,10 @@ module.exports = {
     }
   },
 
-  createEvent: args => {
+  createEvent: (args, req) => {
+    if (!req.isAuth) {
+      throw new Error("Unauthenticated!");
+    }
     const event = new Event({
       title: args.eventInput.title,
       description: args.eventInput.description,
@@ -140,18 +142,56 @@ module.exports = {
         throw err;
       });
   },
-  bookEvent: async args => {
+  bookEvent: async (args, req) => {
+    if (!req.isAuth) {
+      throw new Error("Unauthenticated!");
+    }
     const fetchedEvent = await Event.findOne({ _id: args.eventId });
     const booking = new Booking({
-      userId: "5e52f8ca7ecd0e4088144fd6",
+      user: "5e52f8ca7ecd0e4088144fd6",
       event: fetchedEvent
     });
     const result = await booking.save();
     return {
       ...result._doc,
       _id: result.id,
+      user: user.bind(this, booking._doc.user),
+      event: singleEvent.bind(this, booking._doc.event),
       createdAt: new Date(result._doc.createdAt).toISOString(),
       updatedAt: new Date(result._doc.updatedAt).toISOString()
     };
+  },
+  cancelBooking: async (args, req) => {
+    if (!req.isAuth) {
+      throw new Error("Unauthenticated!");
+    }
+    try {
+      const booking = await Booking.findById(args.bookingId).populate("event");
+      const event = {
+        ...booking.event._doc,
+        _id: booking.event.id,
+        creator: user.bind(this, booking.event._doc.creator)
+      };
+      await Booking.deleteOne({ _id: args.bookingId });
+      return event;
+    } catch (err) {
+      throw err;
+    }
+  },
+  login: async ({ email, password }) => {
+    const user = await User.findOne({ email: email });
+    if (!user) {
+      throw new Error("User does not exist!");
+    }
+    const isEqual = await bcrypt.compare(password, user.password);
+    if (!isEqual) {
+      throw new Error("Password is incorrect!");
+    }
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      "secretkey",
+      { expiresIn: "1h" }
+    );
+    return { userId: user.id, token, tokenExpiration: 1 };
   }
 };
